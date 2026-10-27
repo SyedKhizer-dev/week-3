@@ -2,11 +2,11 @@ import configparser
 import logging
 import os
 from collections.abc import Iterator
-from getpass import getpass
 from pathlib import Path
 from typing import Any
 
 import mysql.connector
+from dotenv import load_dotenv
 from mysql.connector import Error
 
 logging.basicConfig(
@@ -15,10 +15,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Load environment variables from the project's .env file.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
 
 def load_config() -> configparser.ConfigParser:
     """Load database settings from config/config.ini."""
-    config_path = Path(__file__).resolve().parent.parent / "config" / "config.ini"
+    config_path = PROJECT_ROOT / "config" / "config.ini"
     config = configparser.ConfigParser()
 
     if not config.read(config_path):
@@ -38,8 +42,10 @@ def fetch_employees(batch_size: int = 500) -> Iterator[tuple[Any, ...]]:
     config = load_config()
     password = os.environ.get("MYSQL_PASSWORD")
 
-    if password is None:
-        password = getpass("MySQL password: ")
+    if not password:
+        raise ValueError(
+            "MYSQL_PASSWORD is missing or empty. " "Set it in the project's .env file."
+        )
 
     connection = None
     cursor = None
@@ -47,6 +53,7 @@ def fetch_employees(batch_size: int = 500) -> Iterator[tuple[Any, ...]]:
     try:
         connection = mysql.connector.connect(
             host=config["mysql"]["host"],
+            port=config.getint("mysql", "port", fallback=3306),
             database=config["mysql"]["database"],
             user=config["mysql"]["user"],
             password=password,
@@ -68,6 +75,7 @@ def fetch_employees(batch_size: int = 500) -> Iterator[tuple[Any, ...]]:
     finally:
         if cursor is not None:
             cursor.close()
+
         if connection is not None and connection.is_connected():
             connection.close()
 
@@ -75,10 +83,12 @@ def fetch_employees(batch_size: int = 500) -> Iterator[tuple[Any, ...]]:
 if __name__ == "__main__":
     try:
         count = 0
+
         for employee in fetch_employees():
             print(employee)
             count += 1
 
         logger.info("Processed %d employee records.", count)
+
     except (Error, FileNotFoundError, ValueError) as exc:
         logger.error("Employee processing failed: %s", exc)
